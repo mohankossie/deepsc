@@ -1,10 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Mon Jun  1 09:47:54 2020
-
-@author: HQ Xie
-utils.py
-"""
 import os 
 import math
 import torch
@@ -338,13 +332,64 @@ def val_step(model, src, trg, n_var, pad, criterion, channel):
     
     return loss.item()
     
-def greedy_decode(model, src, n_var, max_len, padding_idx, start_symbol, channel):
-    """ 
-    这里采用贪婪解码器，如果需要更好的性能情况下，可以使用beam search decode
+# def greedy_decode(model, src, n_var, max_len, padding_idx, start_symbol, channel):
+#     """ 
+#     这里采用贪婪解码器，如果需要更好的性能情况下，可以使用beam search decode
+#     """
+#     # create src_mask
+#     channels = Channels()
+#     src_mask = (src == padding_idx).unsqueeze(-2).type(torch.FloatTensor).to(device) #[batch, 1, seq_len]
+
+#     enc_output = model.encoder(src, src_mask)
+#     channel_enc_output = model.channel_encoder(enc_output)
+#     Tx_sig = PowerNormalize(channel_enc_output)
+
+#     if channel == 'AWGN':
+#         Rx_sig = channels.AWGN(Tx_sig, n_var)
+#     elif channel == 'Rayleigh':
+#         Rx_sig = channels.Rayleigh(Tx_sig, n_var)
+#     elif channel == 'Rician':
+#         Rx_sig = channels.Rician(Tx_sig, n_var)
+#     else:
+#         raise ValueError("Please choose from AWGN, Rayleigh, and Rician")
+            
+#     #channel_enc_output = model.blind_csi(channel_enc_output)
+          
+#     memory = model.channel_decoder(Rx_sig)
+    
+#     outputs = torch.ones(src.size(0), 1).fill_(start_symbol).type_as(src.data)
+
+#     for i in range(max_len - 1):
+#         # create the decode mask
+#         trg_mask = (outputs == padding_idx).unsqueeze(-2).type(torch.FloatTensor) #[batch, 1, seq_len]
+#         look_ahead_mask = subsequent_mask(outputs.size(1)).type(torch.FloatTensor)
+# #        print(look_ahead_mask)
+#         combined_mask = torch.max(trg_mask, look_ahead_mask)
+#         combined_mask = combined_mask.to(device)
+
+#         # decode the received signal
+#         dec_output = model.decoder(outputs, memory, combined_mask, None)
+#         pred = model.dense(dec_output)
+        
+#         # predict the word
+#         prob = pred[: ,-1:, :]  # (batch_size, 1, vocab_size)
+#         #prob = prob.squeeze()
+
+#         # return the max-prob index
+#         _, next_word = torch.max(prob, dim = -1)
+#         #next_word = next_word.unsqueeze(1)
+        
+#         #next_word = next_word.data[0]
+#         outputs = torch.cat([outputs, next_word], dim=1)
+
+#     return outputs
+
+def greedy_decode(model, src, n_var, max_len, padding_idx, start_symbol, end_symbol, channel):
     """
-    # create src_mask
+    Greedy decoding with early stopping when <END> token is predicted.
+    """
     channels = Channels()
-    src_mask = (src == padding_idx).unsqueeze(-2).type(torch.FloatTensor).to(device) #[batch, 1, seq_len]
+    src_mask = (src == padding_idx).unsqueeze(-2).type(torch.FloatTensor).to(device)
 
     enc_output = model.encoder(src, src_mask)
     channel_enc_output = model.channel_encoder(enc_output)
@@ -358,37 +403,28 @@ def greedy_decode(model, src, n_var, max_len, padding_idx, start_symbol, channel
         Rx_sig = channels.Rician(Tx_sig, n_var)
     else:
         raise ValueError("Please choose from AWGN, Rayleigh, and Rician")
-            
-    #channel_enc_output = model.blind_csi(channel_enc_output)
-          
+
     memory = model.channel_decoder(Rx_sig)
-    
+
     outputs = torch.ones(src.size(0), 1).fill_(start_symbol).type_as(src.data)
 
     for i in range(max_len - 1):
-        # create the decode mask
-        trg_mask = (outputs == padding_idx).unsqueeze(-2).type(torch.FloatTensor) #[batch, 1, seq_len]
+        trg_mask = (outputs == padding_idx).unsqueeze(-2).type(torch.FloatTensor)
         look_ahead_mask = subsequent_mask(outputs.size(1)).type(torch.FloatTensor)
-#        print(look_ahead_mask)
-        combined_mask = torch.max(trg_mask, look_ahead_mask)
-        combined_mask = combined_mask.to(device)
+        combined_mask = torch.max(trg_mask, look_ahead_mask).to(device)
 
-        # decode the received signal
         dec_output = model.decoder(outputs, memory, combined_mask, None)
         pred = model.dense(dec_output)
-        
-        # predict the word
-        prob = pred[: ,-1:, :]  # (batch_size, 1, vocab_size)
-        #prob = prob.squeeze()
 
-        # return the max-prob index
-        _, next_word = torch.max(prob, dim = -1)
-        #next_word = next_word.unsqueeze(1)
-        
-        #next_word = next_word.data[0]
+        prob = pred[:, -1:, :]
+        _, next_word = torch.max(prob, dim=-1)
+
         outputs = torch.cat([outputs, next_word], dim=1)
 
-    return outputs
+        # 🛑 Stop decoding when all sequences in batch predict <END>
+        if (next_word == end_symbol).all():
+            break
 
+    return outputs
 
 
