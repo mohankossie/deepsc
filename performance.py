@@ -124,7 +124,7 @@ def performance(args, SNR, net):
                     target = sents
 
                     out = greedy_decode(net, sents, noise_std, args.MAX_LENGTH, pad_idx,
-                                        start_idx, args.channel)
+                                        start_idx, end_idx, args.channel)
 
                     sentences = out.cpu().numpy().tolist()
                     result_string = list(map(StoT.sequence_to_text, sentences))
