@@ -1,3 +1,6 @@
+# This script trains a DeepSC model for sequence-to-sequence tasks using Pytorch.
+# It includes functionality for training, validation, and BLUE evaluation.
+# -*- coding: utf-8 -*-
 import os
 import argparse
 import time
@@ -6,12 +9,14 @@ import torch
 import random
 import torch.nn as nn
 import numpy as np
-from utils import SNR_to_noise, initNetParams, train_step, val_step, train_mi
+from utils import SNR_to_noise, initNetParams, train_step, val_step, train_mi, SeqtoText
 from dataset import EurDataset, collate_data
 from models.transceiver import DeepSC
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from performance import evaluate_bleu
 
+# Argument parser
 parser = argparse.ArgumentParser()
 parser.add_argument('--vocab-file', default='europarl/vocab.json', type=str)
 parser.add_argument('--checkpoint-path', default='checkpoints/deepsc-Rayleigh', type=str)
@@ -25,6 +30,11 @@ parser.add_argument('--num-heads', default=8, type=int)
 parser.add_argument('--batch-size', default=128, type=int)
 parser.add_argument('--epochs', default=80, type=int)
 
+# BLEU evaluation flags
+parser.add_argument('--evaluate-bleu', action='store_true', help="Run BLEU evaluation instead of training")
+parser.add_argument('--bleu-snrs', nargs='+', type=int, default=[0, 5, 10], help="SNRs to test BLEU on")
+parser.add_argument('--export-csv', action='store_true', help="Export BLEU scores to CSV")
+parser.add_argument('--csv-path', type=str, default="bleu_results.csv", help="CSV path for BLEU results")
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -80,6 +90,39 @@ if __name__ == '__main__':
 
     initNetParams(deepsc)
 
+    # BLEU evaluation mode
+    if args.evaluate_bleu:
+        # Load latest checkpoint
+        checkpoint_dir = args.checkpoint_path
+        if not os.path.exists(checkpoint_dir) or len(os.listdir(checkpoint_dir)) == 0:
+            raise ValueError(f"No checkpoints found in {checkpoint_dir}")
+        latest_checkpoint = sorted(os.listdir(checkpoint_dir))[-1]
+        checkpoint_path = os.path.join(checkpoint_dir, latest_checkpoint)
+        print(f"[INFO] Loading checkpoint: {checkpoint_path}")
+        deepsc.load_state_dict(torch.load(checkpoint_path, map_location=device))
+        deepsc.eval()
+
+        # Prepare test loader
+        test_dataset = EurDataset(split='test')
+        test_loader = DataLoader(test_dataset, batch_size=args.batch_size, collate_fn=collate_data)
+
+        # Run BLEU evaluation
+        bleu_results = evaluate_bleu(
+            models=[deepsc],
+            test_loader=test_loader,
+            pad_idx=pad_idx,
+            start_idx=token_to_idx["<START>"],
+            end_idx=token_to_idx["<END>"],
+            snrs=args.bleu_snrs,
+            max_len=args.MAX_LENGTH,
+            vocab=token_to_idx,
+            channel_type=args.channel,
+            export_csv=args.export_csv,
+            csv_path=args.csv_path
+        )
+        exit(0)
+
+    # Training loop
     record_loss = float('inf')
     for epoch in range(args.epochs):
         start = time.time()
