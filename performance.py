@@ -1,7 +1,7 @@
 # !usr/bin/env python
 # -*- coding:utf-8 -*-
 """
-@Author: Huiqiang Xie, updated by ChatGPT
+@Author: Huiqiang Xie, updated by Moha Nkossie
 @File: performance.py
 @Time: 2021/4/1
 """
