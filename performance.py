@@ -100,3 +100,13 @@ if __name__ == '__main__':
 
     bleu_scores = performance(args, SNR, model, token_to_idx)
     print("BLEU-1 Scores per SNR:", bleu_scores)
+
+    #print full BLEU scores Matrix
+    # np.set_printoptions(threshold=np.inf)
+    # print(bleu_scores)
+
+
+    #print average BLEU-1 score per SNR
+    avg_bleu_per_snr = np.mean(bleu_scores, axis=1)
+    for snr, score in zip(SNR, avg_bleu_per_snr):
+        print(f"SNR = {snr}dB -> Avg Bleu-1: {score:.4f}")
