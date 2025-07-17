@@ -1,9 +1,9 @@
 # !usr/bin/env python
-# -*- coding:utf-8 -*-
+# -*- coding:utf-8 _*-
 """
-@Author: Huiqiang Xie, updated by Moha Nkossie
+@Author: Huiqiang Xie (modified)
 @File: performance.py
-@Time: 2021/4/1
+@Time: 2021/4/1 11:48
 """
 import os
 import json
@@ -30,47 +30,47 @@ parser.add_argument('--num-heads', default=8, type=int)
 parser.add_argument('--batch-size', default=64, type=int)
 parser.add_argument('--epochs', default=1, type=int)
 
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+def performance(args, SNR, net):
+    bleu_scores_1 = BleuScore(1, 0, 0, 0)
+    bleu_scores_2 = BleuScore(0.5, 0.5, 0, 0)
+    bleu_scores_3 = BleuScore(1/3, 1/3, 1/3, 0)
+    bleu_scores_4 = BleuScore(0.25, 0.25, 0.25, 0.25)
 
-def performance(args, SNR, net, token_to_idx):
-    pad_idx = token_to_idx["<PAD>"]
-    start_idx = token_to_idx["<START>"]
-    end_idx = token_to_idx["<END>"]
-    StoT = SeqtoText(token_to_idx, end_idx)
-
-    bleu_score_1gram = BleuScore(1, 0, 0, 0)
     test_eur = EurDataset('test')
-    test_loader = DataLoader(test_eur, batch_size=args.batch_size, num_workers=0,
-                             pin_memory=True, collate_fn=collate_data)
+    test_iterator = DataLoader(test_eur, batch_size=args.batch_size, num_workers=0,
+                               pin_memory=True, collate_fn=collate_data)
+
+    StoT = SeqtoText(token_to_idx, end_idx)
+    bleu_scores_all = {1: [], 2: [], 3: [], 4: []}
 
     net.eval()
-    all_bleu_scores = []
-
     with torch.no_grad():
         for snr in tqdm(SNR, desc="Evaluating SNR"):
             noise_std = SNR_to_noise(snr)
+            all_preds = []
+            all_targets = []
 
-            references = []
-            hypotheses = []
+            for sents in test_iterator:
+                sents = sents.to(device)
+                target = sents
 
-            for batch in test_loader:
-                batch = batch.to(device)
+                out = greedy_decode(net, sents, noise_std, args.MAX_LENGTH, pad_idx,
+                                     start_idx, end_idx, args.channel)
+                pred = out.cpu().numpy().tolist()
+                tgt = target.cpu().numpy().tolist()
 
-                decoded_output = greedy_decode(net, batch, noise_std, args.MAX_LENGTH,
-                                               pad_idx, start_idx, end_idx, args.channel)
+                all_preds += list(map(StoT.sequence_to_text, pred))
+                all_targets += list(map(StoT.sequence_to_text, tgt))
 
-                decoded_texts = list(map(StoT.sequence_to_text, decoded_output.cpu().numpy()))
-                target_texts = list(map(StoT.sequence_to_text, batch.cpu().numpy()))
+            bleu_scores_all[1].append(bleu_scores_1.compute_blue_score(all_preds, all_targets))
+            bleu_scores_all[2].append(bleu_scores_2.compute_blue_score(all_preds, all_targets))
+            bleu_scores_all[3].append(bleu_scores_3.compute_blue_score(all_preds, all_targets))
+            bleu_scores_all[4].append(bleu_scores_4.compute_blue_score(all_preds, all_targets))
 
-                hypotheses.extend(decoded_texts)
-                references.extend(target_texts)
-
-            # BLEU Score Evaluation (1-gram)
-            bleu = bleu_score_1gram.compute_blue_score(hypotheses, references)
-            all_bleu_scores.append(bleu)
-
-    return np.array(all_bleu_scores)
+    return bleu_scores_all
 
 
 if __name__ == '__main__':
@@ -80,33 +80,33 @@ if __name__ == '__main__':
     args.vocab_file = os.path.join('data', args.vocab_file)
     vocab = json.load(open(args.vocab_file, 'rb'))
     token_to_idx = vocab['token_to_idx']
+    idx_to_token = dict(zip(token_to_idx.values(), token_to_idx.keys()))
     num_vocab = len(token_to_idx)
+    pad_idx = token_to_idx["<PAD>"]
+    start_idx = token_to_idx["<START>"]
+    end_idx = token_to_idx["<END>"]
 
-    model = DeepSC(args.num_layers, num_vocab, num_vocab,
-                   num_vocab, num_vocab, args.d_model, args.num_heads,
-                   args.dff, 0.1).to(device)
+    deepsc = DeepSC(args.num_layers, num_vocab, num_vocab,
+                    num_vocab, num_vocab, args.d_model, args.num_heads,
+                    args.dff, 0.1).to(device)
 
-    # Load latest checkpoint
-    model_paths = [
-        (os.path.join(args.checkpoint_path, fn), int(fn.split('_')[-1].split('.')[0]))
-        for fn in os.listdir(args.checkpoint_path) if fn.endswith('.pth')
-    ]
+    model_paths = []
+    for fn in os.listdir(args.checkpoint_path):
+        if fn.endswith('.pth'):
+            idx = int(os.path.splitext(fn)[0].split('_')[-1])
+            model_paths.append((os.path.join(args.checkpoint_path, fn), idx))
+
     model_paths.sort(key=lambda x: x[1])
-    latest_checkpoint_path, _ = model_paths[-1]
+    model_path, _ = model_paths[-1]
+    checkpoint = torch.load(model_path)
+    deepsc.load_state_dict(checkpoint)
+    print(f"Model loaded from {model_path}")
 
-    checkpoint = torch.load(latest_checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint)
-    print(f"Model loaded from {latest_checkpoint_path}")
+    bleu_scores_all = performance(args, SNR, deepsc)
 
-    bleu_scores = performance(args, SNR, model, token_to_idx)
-    print("BLEU-1 Scores per SNR:", bleu_scores)
-
-    #print full BLEU scores Matrix
-    # np.set_printoptions(threshold=np.inf)
-    # print(bleu_scores)
+    print("\nBLEU Scores vs SNR:")
+    for n in range(1, 5):
+        # print(f"BLEU-{n}:", [round(s, 4) for s in bleu_scores_all[n]])
+        print(f"BLEU-{n}:", [round(np.mean(s), 4) for s in bleu_scores_all[n]])
 
 
-    #print average BLEU-1 score per SNR
-    avg_bleu_per_snr = np.mean(bleu_scores, axis=1)
-    for snr, score in zip(SNR, avg_bleu_per_snr):
-        print(f"SNR = {snr}dB -> Avg Bleu-1: {score:.4f}")
