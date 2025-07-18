@@ -15,6 +15,7 @@ from models.transceiver import DeepSC
 from torch.utils.data import DataLoader
 from utils import BleuScore, SNR_to_noise, greedy_decode, SeqtoText
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data-dir', default='europarl/train_data.pkl', type=str)
@@ -104,9 +105,26 @@ if __name__ == '__main__':
 
     bleu_scores_all = performance(args, SNR, deepsc)
 
+    # print("\nBLEU Scores vs SNR:")
+    # for n in range(1, 5):
+    #     # print(f"BLEU-{n}:", [round(s, 4) for s in bleu_scores_all[n]])
+    #     print(f"BLEU-{n}:", [round(np.mean(s), 4) for s in bleu_scores_all[n]])
+    
+
+    #BLEU-N Plotting
     print("\nBLEU Scores vs SNR:")
     for n in range(1, 5):
-        # print(f"BLEU-{n}:", [round(s, 4) for s in bleu_scores_all[n]])
-        print(f"BLEU-{n}:", [round(np.mean(s), 4) for s in bleu_scores_all[n]])
+        scores_per_snr = [np.mean(s) for s in bleu_scores_all[n]]
+        print(f"BLEU-{n}:", [round(score, 4) for score in scores_per_snr])
+        plt.plot(SNR, scores_per_snr, label=f"BLEU-{n}")
 
-
+    plt.title("BLEU-N Scores vs SNR")
+    plt.xlabel("SNR (dB)")
+    plt.ylabel("BLEU Score")
+    plt.xticks(SNR)
+    plt.ylim(0, 1.05)
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("bleu_vs_snr.png")
+    plt.show()
