@@ -107,11 +107,9 @@ if __name__ == '__main__':
 
     # print("\nBLEU Scores vs SNR:")
     # for n in range(1, 5):
-    #     # print(f"BLEU-{n}:", [round(s, 4) for s in bleu_scores_all[n]])
     #     print(f"BLEU-{n}:", [round(np.mean(s), 4) for s in bleu_scores_all[n]])
     
-
-    #BLEU-N Plotting
+    # BLEU-N Plotting
     print("\nBLEU Scores vs SNR:")
     for n in range(1, 5):
         scores_per_snr = [np.mean(s) for s in bleu_scores_all[n]]
@@ -128,3 +126,4 @@ if __name__ == '__main__':
     plt.tight_layout()
     plt.savefig("bleu_vs_snr.png")
     plt.show()
+
